@@ -1,0 +1,12 @@
+,Importance,Features
+0,0.14452634,purchase_vehicle_year
+1,0.26476146,trade_in
+2,0.02430334,vehicle_financing
+3,0.10588231,customer_previous_purchase
+4,0.07958316,customer_distance_to_dealer
+5,0.09579828,vehicle_warranty_used
+6,0.01159819,purchase_make_cat
+7,0.01626662,purchase_model_cat
+8,0.01259106,customer_age_cat
+9,0.03268895,customer_income_cat
+10,0.21200031,purchase_price_price
