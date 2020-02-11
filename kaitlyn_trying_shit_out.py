@@ -1,6 +1,15 @@
 # %% Imports and file load
 import pathlib, numpy as np, pandas as pd, seaborn as sns, matplotlib, matplotlib.pyplot as plt
 
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import train_test_split
+from xgboost import XGBClassifier
+from sklearn import metrics
+
 sns.set()
 %matplotlib inline
 pd.options.mode.chained_assignment = None
@@ -98,4 +107,34 @@ data.loc[data.post_purchase_satisfaction == '?','survey_missing'] = 1
 data.drop(columns=['post_purchase_satisfaction'], inplace=True)
 
 # %%
-data.dtypes
+features = data.drop(columns=['loyal'])
+labels = data['loyal']
+X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.4, random_state=42)
+X_test, X_val, y_test, y_val = train_test_split(X_test, y_test, test_size=0.5, random_state=42)
+
+# %% Random Forest
+rf = RandomForestClassifier()
+parameters = {
+        'n_estimators':[20,50,100],
+        'max_depth': [10,20]
+        #'learning_rate':[2, 5, 10],
+        #'max_features':[2, 5, 10, None]
+        }
+
+cv = GridSearchCV(rf, parameters, cv=5, scoring='f1_macro',verbose=1)
+cv.fit(X_train, y_train.values.ravel(), n_jobs=3)
+cv.cv_results_
+cv.best_estimator_
+
+# %%
+rf = RandomForestClassifier(n_estimators=20, max_depth=20)
+rf.fit(X_train, y_train)
+scores = rf.score(X_val, y_val)
+scores
+predictions = rf.predict_proba(X_test)
+predictions2 = rf.predict(X_test)
+metrics.accuracy_score(y_test, predictions2)
+metrics.classification_report(y_test, predictions2, labels=[1,0])
+rf.feature_importances_
+X_test.columns
+metrics.confusion_matrix(y_test, predictions2, labels=[1,0])
