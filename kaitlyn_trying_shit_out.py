@@ -1,8 +1,9 @@
 # %% Imports and file load
-import pathlib, numpy as np, pandas as pd, seaborn as sns, matplotlib, matplotlib.pyplot as plt
+import pathlib, math, numpy as np, pandas as pd, seaborn as sns, matplotlib, matplotlib.pyplot as plt
 
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import cross_val_score
@@ -60,6 +61,16 @@ data['purchase_price'] = data['purchase_price'].map({'0 - 5000':1,
                                                     '85001 - 90000':18,
                                                     '90001 - 95000':19,
                                                     '?':np.nan})
+data['customer_gender'] = data['customer_gender'].map({'M':0,'F':1,'U':np.nan})
+
+
+data[['purchase_make', 'purchase_model']] = data[['purchase_make', 'purchase_model']].astype('category')
+data.groupby('purchase_make')['insert_num'].count()
+#purchase_make = data.purchase_make
+#purchase_model = data.purchase_model
+data['purchase_make'] = data['purchase_make'].cat.codes
+data['purchase_model'] = data['purchase_model'].cat.codes
+
 
 data.loc[data.customer_distance_to_dealer == '?', 'customer_distance_to_dealer'] = np.nan
 data['customer_distance_to_dealer'] = data['customer_distance_to_dealer'].astype('float64')
@@ -70,71 +81,97 @@ data.loc[data.subsequent_purchases > 0, 'loyal'] = 1
 # %% Determining how to handle missing values
 
 # Missing values for purchase price are such a small percentage, they can be dropped
-data.groupby(pd.isnull(data['purchase_price']))['loyal'].count()
+#data.groupby(pd.isnull(data['purchase_price']))['loyal'].count()
 data.dropna(subset=['purchase_price'],inplace=True)
 
 # Missing values for age are small but might affect response, so they'll be filled
 # with median and have a column added to indicate a missing value
-data.groupby(pd.isnull(data['customer_age']))['loyal'].count()
-data.groupby(pd.isnull(data['customer_age']))['loyal'].mean()
-data.groupby('loyal')['customer_age'].value_counts()
-data['age_missing'] = 0
-data.loc[pd.isnull(data.customer_age), 'age_missing'] = 1
+#data.groupby(pd.isnull(data['customer_age']))['loyal'].count()
+#data.groupby(pd.isnull(data['customer_age']))['loyal'].mean()
+#data.groupby('loyal')['customer_age'].value_counts()
+#data['age_missing'] = 0
+#data.loc[pd.isnull(data.customer_age), 'age_missing'] = 1
 data['customer_age'].fillna(data['customer_age'].median(), inplace=True)
 
 # Same deal with missing values for distance to dealer
-data.groupby(pd.isnull(data.customer_distance_to_dealer))['loyal'].count()
-data.groupby(pd.isnull(data.customer_distance_to_dealer))['loyal'].mean()
-data.groupby('loyal')['customer_distance_to_dealer'].median()
+#data.groupby(pd.isnull(data.customer_distance_to_dealer))['loyal'].count()
+#data.groupby(pd.isnull(data.customer_distance_to_dealer)).mean()
+#data.groupby('loyal')['customer_distance_to_dealer'].median()
 data['distance_missing'] = 0
 data.loc[pd.isnull(data.customer_distance_to_dealer), 'distance_missing'] = 1
-data['customer_distance_to_dealer'].fillna(data['customer_distance_to_dealer'].median(), inplace=True)
+#data['customer_distance_to_dealer'].fillna(data['customer_distance_to_dealer'].median(), inplace=True)
+s = data.customer_distance_to_dealer.value_counts(normalize=True)
+data.loc[data.distance_missing == 1,'customer_distance_to_dealer'] = np.random.choice(s.index, size=len(data.loc[data.distance_missing == 1,'customer_distance_to_dealer']),p=s.values)
+distance_bins = [-1,.1, 1.1, 5.1, 10.1, 25.1, 50.1, 100.1, 2500.1]
+distance_labels = [1,2,3,4,5,6,7,8]
+data['distance_binned'] = pd.cut(data['customer_distance_to_dealer'], bins=distance_bins, labels=distance_labels)
+
+def randomboolean(rand):
+    if rand > 0.6:
+        return 1;
+    else:
+        return 0;
+# Same deal with missing values for gender
+#data.groupby(pd.isnull(data.customer_gender))['loyal'].count()
+#data.groupby(pd.isnull(data.customer_gender))['loyal'].mean()
+#data.groupby('loyal')['customer_gender'].mean()
+data['customer_gender'].fillna(randomboolean(np.random.rand()), inplace=True)
 
 # Missing values for income are fairly large. They don't affect the mean of the
 # response but they are disproportionately missing for other factors. They'll be
 # filled with median and have a column added to indicate missing values
-data.groupby(pd.isnull(data['customer_income']))['loyal'].count()
-data.groupby(pd.isnull(data['customer_income']))['loyal'].mean()
+#data.groupby(pd.isnull(data['customer_income']))['loyal'].count()
+#data.groupby(pd.isnull(data['customer_income']))['loyal'].mean()
 data['income_missing'] = 0
 data.loc[pd.isnull(data.customer_income), 'income_missing'] = 1
 data['customer_income'].fillna(data['customer_income'].median(), inplace=True)
 
 # Too many values are missing for post purchase satisfaction, so the whole feature
 # will replaced with whether or not it was completed
-data.groupby(data['post_purchase_satisfaction']=='?')['loyal'].count()
-data['survey_missing'] = 0
-data.loc[data.post_purchase_satisfaction == '?','survey_missing'] = 1
+#data.groupby(data['post_purchase_satisfaction']=='?')['loyal'].count()
+#data['survey_missing'] = 0
+#data.loc[data.post_purchase_satisfaction == '?','survey_missing'] = 1
 data.drop(columns=['post_purchase_satisfaction'], inplace=True)
 
 # %%
-features = data.drop(columns=['loyal'])
+sns.violinplot(data=data.loc[data.customer_distance_to_dealer < 20],y='customer_distance_to_dealer',x='loyal')
+
+# %%
+features = data.drop(columns=['loyal','purchase_make','purchase_model','subsequent_purchases','distance_missing','customer_distance_to_dealer','insert_num'])
 labels = data['loyal']
 X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.4, random_state=42)
 X_test, X_val, y_test, y_val = train_test_split(X_test, y_test, test_size=0.5, random_state=42)
 
-# %% Random Forest
-rf = RandomForestClassifier()
-parameters = {
-        'n_estimators':[20,50,100],
-        'max_depth': [10,20]
-        #'learning_rate':[2, 5, 10],
-        #'max_features':[2, 5, 10, None]
-        }
+rf = RandomForestClassifier(n_estimators=50, max_depth=10)
+rf.fit(X_train, y_train)
+scores = rf.score(X_val, y_val)
+predictions = rf.predict(X_test)
+metrics.accuracy_score(y_test, predictions)
+metrics.classification_report(y_test, predictions, labels=[1,0])
+rf.feature_importances_
+X_test.columns
+metrics.confusion_matrix(y_test, predictions, labels=[1,0])
 
-cv = GridSearchCV(rf, parameters, cv=5, scoring='f1_macro',verbose=1)
-cv.fit(X_train, y_train.values.ravel(), n_jobs=3)
-cv.cv_results_
-cv.best_estimator_
+# %% Regressor test
+features = data.drop(columns=['loyal','purchase_make','purchase_model','subsequent_purchases','distance_missing','customer_distance_to_dealer','insert_num'])
+labels = data['subsequent_purchases']
+X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.4, random_state=42)
+X_test, X_val, y_test, y_val = train_test_split(X_test, y_test, test_size=0.5, random_state=42)
 
-# %%
-rf = RandomForestClassifier(n_estimators=20, max_depth=20)
+rf = RandomForestRegressor(n_estimators=50, max_depth=10)
 rf.fit(X_train, y_train)
 scores = rf.score(X_val, y_val)
 scores
-predictions = rf.predict_proba(X_test)
 predictions2 = rf.predict(X_test)
-metrics.accuracy_score(y_test, predictions2)
-metrics.classification_report(y_test, predictions2, labels=[1,0])
+metrics.mean_squared_error(y_test, predictions2)
 rf.feature_importances_
 X_test.columns
 metrics.confusion_matrix(y_test, predictions2, labels=[1,0])
+
+
+# %% Follow-up analysis
+sns.heatmap(data.drop(columns=['insert_num','subsequent_purchases','loyal','purchase_make','purchase_model']).corr('pearson').abs(),cmap='Blues',square=True)
+
+
+data.groupby('distance_binned')['loyal'].mean()
+data.groupby(['subsequent_purchases','distance_binned'])['insert_num'].count()
