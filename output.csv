@@ -1,0 +1,16 @@
+,Specs,Score
+12,distance_missing,11869.857098920309
+8,customer_distance_to_dealer,1093.4368310766781
+7,customer_previous_purchase,698.3477136455762
+2,trade_in,365.45830508648453
+5,customer_income,349.2302476566857
+9,vehicle_warranty_used,133.00166341609392
+3,vehicle_financing,93.3051883920971
+14,income_missing,82.10556075316882
+6,customer_gender,59.257995713963396
+1,purchase_price,23.73736163389446
+13,distance_binned,23.371714450063447
+11,purchase_make_cat,7.3364809482583855
+0,purchase_vehicle_year,2.0510437406890616
+10,make_popularity,0.7311399803803811
+4,customer_age,0.21377281914893537

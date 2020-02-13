@@ -18,6 +18,25 @@ pd.options.mode.chained_assignment = None
 datafolder = pathlib.Path.cwd() / 'CaseCompetitionData' / 'CaseCompetitionData.csv'
 data = pd.read_csv(datafolder)
 
+luxury = ['AUDI','BENTLEY','BMW','CADILLAC','INFINITI','JAGUAR','LAND ROVER','LEXUS','MASERATI','MERCEDES-BENZ','PORSCHE']
+midrange = ['ACURA','BUICK','CHEVROLET','DODGE','FORD','GMC','HUMMER','JEEP','LINCOLN','LOTUS','MINI','SUBARU','TOYOTA','VOLVO','VOLKSWAGEN']
+lowend = ['CHRYSLER','FIAT','HONDA','HYUNDAI','KIA','MAZDA','MERCURY','MITSUBISHI','NISSAN','PONTIAC','SCION','SUZUKI']
+budget = ['DAEWOO','EAGLE','GEO','ISUZU','OLDSMOBILE','PLYMOUTH','SAAB','SATURN','SMART']
+
+popularities = data.purchase_make.value_counts().to_frame().reset_index()
+popularities.purchase_make = popularities.purchase_make / popularities.purchase_make.sum()
+popularities.rename(columns={'purchase_make':'make_popularity'},inplace=True)
+
+
+data = data.merge(popularities, how='left', left_on='purchase_make', right_on='index')
+data.drop(columns=['index'],inplace=True)
+
+data['purchase_make_cat'] = np.nan
+data.loc[data['purchase_make'].isin(luxury),'purchase_make_cat'] = 4
+data.loc[data['purchase_make'].isin(midrange),'purchase_make_cat'] = 3
+data.loc[data['purchase_make'].isin(lowend),'purchase_make_cat'] = 2
+data.loc[data['purchase_make'].isin(budget),'purchase_make_cat'] = 1
+
 data['customer_age'] = data['customer_age'].map({'0 - 20':1,
                                                 '21 - 30':2,
                                                 '31 - 40':3,
@@ -64,13 +83,15 @@ data['purchase_price'] = data['purchase_price'].map({'0 - 5000':1,
 data['customer_gender'] = data['customer_gender'].map({'M':0,'F':1,'U':np.nan})
 
 
+
+#data.groupby('purchase_make')['insert_num'].count()
+'''purchase_make = data.purchase_make
+purchase_model = data.purchase_model
+
 data[['purchase_make', 'purchase_model']] = data[['purchase_make', 'purchase_model']].astype('category')
-data.groupby('purchase_make')['insert_num'].count()
-#purchase_make = data.purchase_make
-#purchase_model = data.purchase_model
 data['purchase_make'] = data['purchase_make'].cat.codes
 data['purchase_model'] = data['purchase_model'].cat.codes
-
+'''
 
 data.loc[data.customer_distance_to_dealer == '?', 'customer_distance_to_dealer'] = np.nan
 data['customer_distance_to_dealer'] = data['customer_distance_to_dealer'].astype('float64')
@@ -112,7 +133,7 @@ def randomboolean(rand):
     else:
         return 0;
 # Same deal with missing values for gender
-#data.groupby(pd.isnull(data.customer_gender))['loyal'].count()
+data.groupby(pd.isnull(data.customer_gender))['loyal'].count()
 #data.groupby(pd.isnull(data.customer_gender))['loyal'].mean()
 #data.groupby('loyal')['customer_gender'].mean()
 data['customer_gender'].fillna(randomboolean(np.random.rand()), inplace=True)
@@ -134,11 +155,10 @@ data['customer_income'].fillna(data['customer_income'].median(), inplace=True)
 data.drop(columns=['post_purchase_satisfaction'], inplace=True)
 
 # %%
-sns.violinplot(data=data.loc[data.customer_distance_to_dealer < 20],y='customer_distance_to_dealer',x='loyal')
+features = data.drop(columns=['loyal','subsequent_purchases','purchase_make','purchase_model','insert_num'])
+labels = data['loyal']
 
 # %%
-features = data.drop(columns=['loyal','purchase_make','purchase_model','subsequent_purchases','distance_missing','customer_distance_to_dealer','insert_num'])
-labels = data['loyal']
 X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.4, random_state=42)
 X_test, X_val, y_test, y_val = train_test_split(X_test, y_test, test_size=0.5, random_state=42)
 
@@ -150,8 +170,9 @@ metrics.accuracy_score(y_test, predictions)
 metrics.classification_report(y_test, predictions, labels=[1,0])
 rf.feature_importances_
 X_test.columns
-metrics.confusion_matrix(y_test, predictions, labels=[1,0])
 
+# %%
+'''
 # %% Regressor test
 features = data.drop(columns=['loyal','purchase_make','purchase_model','subsequent_purchases','distance_missing','customer_distance_to_dealer','insert_num'])
 labels = data['subsequent_purchases']
@@ -167,7 +188,7 @@ metrics.mean_squared_error(y_test, predictions2)
 rf.feature_importances_
 X_test.columns
 metrics.confusion_matrix(y_test, predictions2, labels=[1,0])
-
+'''
 
 # %% Follow-up analysis
 sns.heatmap(data.drop(columns=['insert_num','subsequent_purchases','loyal','purchase_make','purchase_model']).corr('pearson').abs(),cmap='Blues',square=True)
@@ -175,3 +196,34 @@ sns.heatmap(data.drop(columns=['insert_num','subsequent_purchases','loyal','purc
 
 data.groupby('distance_binned')['loyal'].mean()
 data.groupby(['subsequent_purchases','distance_binned'])['insert_num'].count()
+
+# %% double check feature importance
+from sklearn.feature_selection import SelectKBest
+from sklearn.feature_selection import chi2
+from sklearn.feature_selection import f_classif
+
+bestfeatures = SelectKBest(score_func=chi2, k=10)
+fit = bestfeatures.fit(features,labels)
+dfscores = pd.DataFrame(fit.scores_)
+dfcolumns = pd.DataFrame(features.columns)
+#concat two dataframes for better visualization
+featureScores = pd.concat([dfcolumns,dfscores],axis=1)
+featureScores.columns = ['Specs','Score']  #naming the dataframe columns\
+featureScores.sort_values('Score',ascending=False).to_csv('output.csv')
+
+# %%
+sns.set()
+sns.set_context("talk")
+for feature in data.columns.values.tolist():
+    fig, axs = plt.subplots(ncols=2,figsize=(15,10))
+    sns.violinplot(x='loyal',y=feature, data=data, ax=axs[0])
+    sns.boxplot(x='loyal',y=feature, data=data, ax=axs[1])
+    plt.show()
+fig = sns.pairplot(data=test_set, hue='loyal', kind='reg')
+
+data.groupby(['customer_income','loyal'])['insert_num'].count().to_csv('output.csv')
+sns.countplot(x='customer_previous_purchase',data=data,hue='loyal')
+
+sns.heatmap(data.pivot_table(index='purchase_price',columns=['customer_age'],values='loyal',aggfunc='mean'),cmap='Blues',square=True)
+data.pivot_table(index='customer_income',columns=['purchase_price'],values='loyal',aggfunc='mean').to_csv('output.csv')
+popularities.to_csv('output.csv')
