@@ -6,7 +6,7 @@ from sklearn.linear_model import LogisticRegression, RidgeClassifier
 from sklearn.svm import SVC
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.neural_network import MLPClassifier
-from sklearn.model_selection import GridSearchCV, cross_val_score, train_test_split
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, cross_val_score, train_test_split
 from sklearn.feature_selection import SelectKBest, chi2, mutual_info_classif, mutual_info_regression, RFECV
 from sklearn.feature_extraction import FeatureHasher
 from sklearn import metrics, preprocessing
@@ -15,8 +15,6 @@ from scipy import stats
 le_make = preprocessing.LabelEncoder()
 le_model = preprocessing.LabelEncoder()
 le_cat = preprocessing.LabelEncoder()
-oh_make = preprocessing.OneHotEncoder()
-oh_model = preprocessing.OneHotEncoder()
 
 sns.set()
 %matplotlib inline
@@ -30,13 +28,20 @@ midrange = ['ACURA','BUICK','CHEVROLET','DODGE','FORD','GMC','HUMMER','JEEP','LI
 lowend = ['CHRYSLER','FIAT','HONDA','HYUNDAI','KIA','MAZDA','MERCURY','MITSUBISHI','NISSAN','PONTIAC','SCION','SUZUKI']
 budget = ['DAEWOO','EAGLE','GEO','ISUZU','OLDSMOBILE','PLYMOUTH','SAAB','SATURN','SMART']
 
+data['loyal'] = 0
+data.loc[data.subsequent_purchases > 0, 'loyal'] = 1
+
 make_popularities = data.purchase_make.value_counts().to_frame().reset_index()
-model_popularities = data.purchase_model.value_counts().to_frame().reset_index()
+make_popularities.purchase_make = make_popularities.purchase_make / make_popularities.purchase_make.sum()
 make_popularities.rename(columns={'purchase_make':'make_popularity'},inplace=True)
 
+model_popularities = data.purchase_model.value_counts().to_frame().reset_index()
+model_popularities.purchase_model = model_popularities.purchase_model / model_popularities.purchase_model.sum()
+model_popularities.rename(columns={'purchase_model':'model_popularity'},inplace=True)
 
-data = data.merge(make_popularities, how='left', left_on='purchase_make', right_on='index')
-data.drop(columns=['index'],inplace=True)
+data = data.merge(make_popularities, how='left', left_on='purchase_make', right_on='index').merge(model_popularities, how='left', left_on='purchase_model', right_on='index')
+data.drop(columns=['index_x','index_y'],inplace=True)
+
 
 data.loc[data.customer_distance_to_dealer == '?', 'customer_distance_to_dealer'] = np.nan
 data['customer_distance_to_dealer'] = data['customer_distance_to_dealer'].astype('float64')
@@ -86,8 +91,6 @@ data['purchase_price'] = data['purchase_price'].map({'0 - 5000':1,
                                                     '?':np.nan})
 data['customer_gender'] = data['customer_gender'].map({'M':0,'F':1,'U':np.nan})
 
-data['loyal'] = 0
-data.loc[data.subsequent_purchases > 0, 'loyal'] = 1
 
 data['purchase_make_cat'] = np.nan
 data.loc[data['purchase_make'].isin(luxury),'purchase_make_cat'] = 'Luxury'
@@ -161,7 +164,7 @@ data.drop(columns=['post_purchase_satisfaction'], inplace=True)
 
 
 # %% Separate Feature Sets
-cat_features = data[['purchase_make','purchase_model','customer_gender','purchase_make_cat','trade_in','vehicle_financing','distance_missing','income_missing','gender_missing','customer_previous_purchase','vehicle_warranty_used','distance_binned']]
+cat_features = data[['customer_gender','trade_in','vehicle_financing','distance_missing','income_missing','gender_missing','customer_previous_purchase','vehicle_warranty_used','distance_binned']]
 cat_label = data['loyal']
 
 num_features = data[['purchase_vehicle_year','purchase_price','customer_age','customer_income','customer_distance_to_dealer','make_popularity']]
@@ -181,12 +184,15 @@ dfcolumns = pd.DataFrame(cat_features.columns)
 featureScores = pd.concat([dfcolumns,dfscores,dfpvalues],axis=1)
 featureScores.columns = ['Specs','Score','Pval']  #naming the dataframe columns\
 featureScores.sort_values('Score',ascending=False)
+data.groupby('make_popularity')['loyal'].count()
+
+data.isna().sum()
 
 sns.heatmap(data.corr().abs(),square=True)
 
 sns.scatterplot(data=data,x='subsequent_purchases',y='customer_income')
 
-for i in ['purchase_vehicle_year','purchase_price','customer_age','customer_income','customer_distance_to_dealer','make_popularity']:
+for i in ['purchase_vehicle_year','purchase_price','customer_age','customer_income','customer_distance_to_dealer','make_popularity','model_popularity','make_mean','model_mean','make_mean_sub','model_mean_sub']:
     print(i)
     print(stats.kendalltau(data[i],data['subsequent_purchases']))
 
@@ -205,10 +211,9 @@ for i in ['purchase_make','purchase_model','customer_gender','purchase_make_cat'
 # MACHINE LEARNING MODEL SELECTION
 ###############################################################################
 
-# %% RandomForestClassifier
-prefeatures = data.drop(columns=['loyal','subsequent_purchases','insert_num','distance_missing'])
-postfeatures = prefeatures.drop(columns=['gender_missing','income_missing','purchase_make_cat','customer_age'])
-postfeatures.columns
+# %% feature sets
+prefeatures = data.drop(columns=['loyal','subsequent_purchases','insert_num','distance_missing','purchase_make','purchase_model','purchase_make_cat'])
+postfeatures = prefeatures.drop(columns=['gender_missing','income_missing','customer_age','distance_binned'])
 labels = data['loyal']
 
 # %%
@@ -216,34 +221,77 @@ features = postfeatures
 X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.4, random_state=42)
 X_test, X_val, y_test, y_val = train_test_split(X_test, y_test, test_size=0.5, random_state=42)
 
-rf = RandomForestClassifier(n_estimators=30, max_depth=5)
-rf.fit(X_train, y_train)
-scores = rf.score(X_val, y_val)
-predictions = rf.predict(X_test)
-metrics.classification_report(y_test, predictions, labels=[1,0])
-rf.feature_importances_
-X_test.columns
-metrics.accuracy_score(y_test, predictions)
-
-data.purchase_model.unique()
-
 # %%
-features = postfeatures
-X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.4, random_state=42)
-X_test, X_val, y_test, y_val = train_test_split(X_test, y_test, test_size=0.5, random_state=42)
-
 model = RidgeClassifier()
 model.fit(X_train, y_train)
-scores = model.score(X_val, y_val)
 predictions = model.predict(X_test)
-metrics.classification_report(y_test, predictions, labels=[1,0])
-metrics.accuracy_score(y_test, predictions)
+print(model.score(X_val, y_val),metrics.accuracy_score(y_test, predictions))
+
+# %%
+model = RandomForestClassifier(n_estimators=50,max_depth=10,class_weight='balanced')
+model.fit(X_train, y_train)
+predictions = model.predict(X_test)
+print(model.score(X_val, y_val),metrics.accuracy_score(y_test, predictions))
+df = pd.DataFrame()
+df['feat'] = X_train.columns
+df['score'] = model.feature_importances_
+print(df.sort_values(by='score',ascending=False))
+print(metrics.confusion_matrix(predictions,y_test))
+print(metrics.classification_report(predictions,y_test))
+
+# %%
+effect = []
+for x in X_train.columns:
+    effect.append((data[x].max()-data[x].min()))
+
+model = LogisticRegression(solver='saga',max_iter=100,class_weight='balanced')
+model.fit(X_train, y_train)
+predictions = model.predict(X_test)
+print(model.score(X_val, y_val),metrics.accuracy_score(y_test, predictions))
+df['feat'] = X_train.columns
+df['score'] = model.coef_.flatten()
+df['range'] = effect
+df['max_effect'] = df['range'] * df['score'].abs()
+print(df.sort_values(by='max_effect',ascending=False))
+print(metrics.confusion_matrix(predictions,y_test))
+print(metrics.classification_report(predictions,y_test))
+
+# %%
+model = GradientBoostingClassifier(n_estimators=30,learning_rate=0.1,max_depth=10)
+model.fit(X_train, y_train)
+predictions = model.predict(X_test)
+print(model.score(X_val, y_val),metrics.accuracy_score(y_test, predictions))
+
+# %%
+model = MultinomialNB()
+model.fit(X_train, y_train)
+predictions = model.predict(X_test)
+print(model.score(X_val, y_val),metrics.accuracy_score(y_test, predictions))
+
+# %%
+model = MLPClassifier()
+model.fit(X_train, y_train)
+predictions = model.predict(X_test)
+print(model.score(X_val, y_val),metrics.accuracy_score(y_test, predictions))
+
+
+# %%
+model = RandomForestClassifier(n_estimators=50,n_jobs=3)
+param_dist = {'criterion': ['gini','entropy'],
+              'max_depth': stats.uniform(0,20)}
+
+n_iter_search = 10
+random_search = RandomizedSearchCV(model, param_distributions=param_dist,
+                                   n_iter=n_iter_search)
+
+random_search.fit(postfeatures, labels)
+random_search.cv_results_
+random_search.best_estimator_
 
 # %%
 
-'''
+
 # %% Regressor test
-features = data.drop(columns=['loyal','purchase_make','purchase_model','subsequent_purchases','distance_missing','customer_distance_to_dealer','insert_num'])
 labels = data['subsequent_purchases']
 X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.4, random_state=42)
 X_test, X_val, y_test, y_val = train_test_split(X_test, y_test, test_size=0.5, random_state=42)
@@ -256,14 +304,17 @@ predictions2 = rf.predict(X_test)
 metrics.mean_squared_error(y_test, predictions2)
 rf.feature_importances_
 X_test.columns
-metrics.confusion_matrix(y_test, predictions2, labels=[1,0])
+
+
+data.to_csv('edited_data.csv')
+
+
 '''
 
 ###############################################################################
 
 # %%
-rf = RandomForestClassifier(n_estimators=30,max_depth=10)
-lr = LogisticRegression(solver='lbfgs')
+lr = LogisticRegression(solver='saga')
 bestfeatures = RFECV(rf)
 fit = bestfeatures.fit(features,labels)
 dfscores = pd.DataFrame(fit.ranking_)
@@ -301,13 +352,6 @@ plt.show()
 
 ################################################################################
 ################################################################################
-
-
-
-
-
-
-
 
 
 
